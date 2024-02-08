@@ -1,0 +1,12 @@
+FROM alpine:latest
+
+RUN apk update && \
+    apk add --no-cache mariadb-client bash less nano xz
+
+RUN echo '@testing https://dl-cdn.alpinelinux.org/alpine/edge/testing' >> /etc/apk/repositories
+
+RUN apk add --no-cache percona-toolkit@testing
+
+# https://pkgs.alpinelinux.org/package/edge/testing/x86_64/percona-toolkit
+#RUN chmod a+x /etc/periodic/daily/*
+#COPY ./scripts/daily/* /etc/periodic/daily

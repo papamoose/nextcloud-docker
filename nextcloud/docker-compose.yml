@@ -1,0 +1,110 @@
+---
+
+version: "3"
+
+networks:
+  gateway:
+    external: true
+  internal:
+    external: false
+
+services:
+
+  redis:
+    image: redis:alpine
+    restart: unless-stopped
+    command: /bin/sh -c "redis-server --requirepass $$REDIS_HOST_PASSWORD"
+    env_file:
+    - ./env/redis.env
+    networks:
+    - internal
+
+  db:
+    image: mariadb:lts
+    restart: unless-stopped
+    command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW --innodb-file-per-table=1 --skip-innodb-read-only-compressed
+    volumes:
+    # Points to a local zfs dataset
+    - /tank/containers/nextcloud/db:/var/lib/mysql
+    - ./bin/connectdb.sh:/root/connectdb.sh
+    # used on initial load
+    #- ./files/restore/owncloud.sql:/docker-entrypoint-initdb.d/dump.sql
+    env_file:
+    - ./env/mysql.env
+    ulimits:
+      nofile:
+        soft: "65536"
+        hard: "65536"
+    networks:
+    - internal
+
+  # https://ricardolsmendes.medium.com/mysql-mariadb-with-scheduled-backup-jobs-running-in-docker-1956e9892e78
+  # https://www.reddit.com/r/NextCloud/comments/gvu8m3/nextcloud_docker_backup/
+  periodic-backup:
+    build:
+      context: ./docker
+      dockerfile: ./mariadbbackup
+    container_name: database-backup
+    restart: unless-stopped
+    command: crond -f -d 8
+    depends_on:
+    - db
+    env_file:
+    - ./env/mysql.env
+    volumes:
+    - /etc/localtime:/etc/localtime:ro
+    - ./backups:/backups
+    - ./backups/backup.sh:/etc/periodic/daily/backup.sh
+    networks:
+    - internal
+
+  app:
+    image: nextcloud:27.1.3-apache
+    restart: unless-stopped
+    links:
+    - db
+    - redis
+    devices:
+    - /dev/dri:/dev/dri
+    volumes:
+    # method 1: old as of 20231031
+    #- ./files/html:/var/www/html
+    # method 2: working as of 20231031
+    - ./nextcloud/var/www/html/config:/var/www/html/config:rw
+    #- ./nextcloud/var/www/html/custom_apps:/var/www/html/custom_apps:rw
+    # data
+    - /tank/containers/nextcloud/datavault:/data:rw
+    # docker-entrypoint-hooks.d: runs as www-data
+    #- ./nextcloud/docker-entrypoint-hooks.d/before-starting:/docker-entrypoint-hooks.d/before-starting
+    ulimits:
+      nofile:
+        soft: "65536"
+        hard: "65536"
+    env_file:
+    - ./env/mysql.env
+    - ./env/redis.env
+    depends_on:
+    - redis
+    - db
+    networks:
+    - gateway
+    - internal
+    labels:
+    - traefik.enable=true
+    - traefik.http.routers.nextcloud.entrypoints=websecure
+    - traefik.http.routers.nextcloud.rule=Host(`cloud.example.com`,`owncloud.example.com`,`nextcloud.example.com`)
+    - traefik.http.routers.nextcloud-push.rule=Host(`cloud.example.com`,`owncloud.example.com`,`nextcloud.example.com`) && PathPrefix(`/push`)
+    - traefik.http.routers.nextcloud-push.tls.certresolver=le
+    - traefik.http.routers.nextcloud-push.tls.domains[0].main=cloud.example.com
+    - traefik.http.routers.nextcloud-push.tls.domains[1].sans=owncloud.example.com
+    - traefik.http.routers.nextcloud-push.tls.domains[2].sans=nextcloud.example.com
+    - traefik.http.services.nextcloud.loadbalancer.server.port=80
+    # ensure we use the defined middlewares
+    - traefik.http.routers.nextcloud.priority=1
+    - traefik.http.routers.nextcloud.middlewares=nextcloud-dav,nextcloud-secheaders
+    # middlewares
+    - traefik.http.middlewares.nextcloud-dav.redirectregex.regex=https://(.*)/.well-known/(card|cal)dav
+    - traefik.http.middlewares.nextcloud-dav.redirectregex.replacement=https://$${1}/remote.php/dav
+    - traefik.http.middlewares.nextcloud-secheaders.headers.stsseconds=31536000
+    # services
+    - traefik.http.services.nextcloud.loadbalancer.passHostHeader=true
