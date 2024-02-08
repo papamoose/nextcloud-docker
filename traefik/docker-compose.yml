@@ -1,0 +1,78 @@
+---
+# step 0:
+#   docker network create --driver=bridge --attachable  --internal=false gateway
+
+version: "3"
+
+services:
+  traefik:
+    image: traefik:v2.10.7
+    container_name: traefik
+    restart: unless-stopped
+    environment:
+    - TZ=America/Denver
+    ports:
+    - "80:80"
+    - "443:443"
+    - "8080:8080"
+    volumes:
+    # Here is the mount of the local `ssl` directory
+    - ./data/letsencrypt:/letsencrypt
+    # The docker socket is mounted for auto-discovery of new services
+    - /var/run/docker.sock:/var/run/docker.sock:ro
+    # Globablly Available User Creds: Same as .htaccess
+    #- ./data/users_credentials:/users_credentials:ro
+    # Mount config files directly
+    - ./data/traefik-tls.toml:/traefik-tls.toml
+    # traefik log file
+    - /var/log/traefik:/var/log
+    networks:
+    - gateway
+    command:
+    - "--log.level=WARN"
+    - "--accesslog=true"
+    - "--accessLog.filePath=/var/log/access.log"
+    #- "--accessLog.filters.statusCodes=400-499"
+    - "--api.dashboard=true"
+    - "--api.insecure=true"
+    - "--providers.docker=true"
+    - "--providers.docker.exposedbydefault=false"
+    - "--providers.docker.useBindPortIP=true"
+    - "--providers.docker.network=gateway"
+    - "--providers.docker.watch=true"
+    # provide a file where options can be provided
+    #   Default TLS certificates must be specified in a file :sadface:
+    - "--providers.file.filename=/traefik-tls.toml"
+    # Entry Points
+    - "--entrypoints.web.address=0.0.0.0:80"
+    - "--entrypoints.websecure.address=0.0.0.0:443"
+    # import tls options from file for the websecure entrypoint
+    #- "--entrypoints.websecure.http.tls.options=default@file"
+    # Certificate Resolver
+    - "--certificatesresolvers.le.acme.email=philip@kauffman.me"
+    - "--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json"
+    # Production Lets Encrypt
+    #- "--certificatesresolvers.le.acme.caserver=https://acme-v02.api.letsencrypt.org/directory"
+    # Staging Lets Encrypt. You'll want to replace the acme.json file. BACKUP this file!!!
+    - "--certificatesresolvers.le.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory"
+    - "--certificatesresolvers.le.acme.httpchallenge=true"
+    - "--certificatesresolvers.le.acme.httpchallenge.entrypoint=web"
+    labels:
+    - traefik.enable=true
+    # Priority: Highest number == first prio
+    #   https://doc.traefik.io/traefik/routing/routers/#priority
+    # Route traffic for *.local.lan and don't auto redirect to HTTPS
+    - traefik.http.routers.pklan.rule=hostregexp(`.*\.local\.lan`)
+    - traefik.http.routers.pklan.entrypoints=web
+    - traefik.http.routers.pklan.priority=1000
+    # global redirect to https
+    - traefik.http.routers.http-catchall.rule=hostregexp(`{host:.+}`)
+    - traefik.http.routers.http-catchall.entrypoints=web
+    - traefik.http.routers.http-catchall.middlewares=redirect-to-https
+    - traefik.http.routers.http-catchall.priority=1
+    # middleware redirect
+    - traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
+
+networks:
+  gateway:
+    external: true
