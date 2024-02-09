@@ -93,11 +93,10 @@ services:
     - traefik.enable=true
     - traefik.http.routers.nextcloud.entrypoints=websecure
     - traefik.http.routers.nextcloud.rule=Host(`cloud.example.com`,`owncloud.example.com`,`nextcloud.example.com`)
-    - traefik.http.routers.nextcloud-push.rule=Host(`cloud.example.com`,`owncloud.example.com`,`nextcloud.example.com`) && PathPrefix(`/push`)
-    - traefik.http.routers.nextcloud-push.tls.certresolver=le
-    - traefik.http.routers.nextcloud-push.tls.domains[0].main=cloud.example.com
-    - traefik.http.routers.nextcloud-push.tls.domains[1].sans=owncloud.example.com
-    - traefik.http.routers.nextcloud-push.tls.domains[2].sans=nextcloud.example.com
+    - traefik.http.routers.nextcloud.tls.certresolver=le
+    - traefik.http.routers.nextcloud.tls.domains[0].main=cloud.example.com
+    - traefik.http.routers.nextcloud.tls.domains[1].sans=owncloud.example.com
+    - traefik.http.routers.nextcloud.tls.domains[2].sans=nextcloud.example.com
     - traefik.http.services.nextcloud.loadbalancer.server.port=80
     # ensure we use the defined middlewares
     - traefik.http.routers.nextcloud.priority=1
